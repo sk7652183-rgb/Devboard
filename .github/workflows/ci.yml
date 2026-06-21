@@ -10,6 +10,7 @@ on:
         branches: [feat/matrix-docker-build]
 
 jobs:
+
     lint-frontend:
         # Github runner
         runs-on: ubuntu-latest

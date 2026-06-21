@@ -3,7 +3,7 @@ name: Go Linter
 
 on: 
     schedule:
-      - cron: '45 12 * * *'
+      - cron: '50 7 * * *'
 
 jobs:
     code-format:
