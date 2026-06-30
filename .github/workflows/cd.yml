@@ -3,10 +3,7 @@
 
 name: CD
 on :
-  workflows_run: ['CI']
-  types: [completed]
-  branches: 
-    - 'advanced'
+  workflow_call:
 
 jobs:
   deploy:
@@ -25,3 +22,5 @@ jobs:
       run: |
         docker compose pull
         docker compose up -d
+    
+  
