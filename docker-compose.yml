@@ -48,7 +48,7 @@ services:
     depends_on:
       - backend
     ports:
-      - "${FRONTEND_HOST_PORT}:4173"   # vite preview serves on 4173 inside the container
+      - "${FRONTEND_HOST_PORT}:80" 
 
 volumes:
   pgdata:
