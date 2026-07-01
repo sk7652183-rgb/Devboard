@@ -1,4 +1,3 @@
-// DevBoard backend — a minimal Go + Gin REST API over PostgreSQL.
 package main
 
 import (
@@ -15,27 +14,6 @@ import (
 
 var db *sql.DB
 
-type Task struct {
-	ID          int     `json:"id"`
-	Title       string  `json:"title"`
-	Description string  `json:"description"`
-	ProjectID   int     `json:"project_id"`
-	AssigneeID  *int    `json:"assignee_id"`
-	Status      string  `json:"status"`
-	Priority    string  `json:"priority"`
-	DueDate     *string `json:"due_date"`
-	CreatedAt   string  `json:"created_at"`
-	UpdatedAt   string  `json:"updated_at"`
-}
-
-type Project struct {
-	ID          int    `json:"id"`
-	Name        string `json:"name"`
-	Description string `json:"description"`
-	OwnerID     *int   `json:"owner_id"`
-	CreatedAt   string `json:"created_at"`
-}
-
 func main() {
 	dsn := env("POSTGRES_URL", "postgres://devboard:devboard@localhost:5432/devboard?sslmode=disable")
 
@@ -44,6 +22,7 @@ func main() {
 	if err != nil {
 		log.Fatalf("[backend] FATAL open db: %v", err)
 	}
+
 	db.SetMaxOpenConns(10)
 
 	for i := 0; i < 30; i++ {
@@ -53,6 +32,7 @@ func main() {
 		log.Printf("[backend] waiting for postgres (%d)…", i+1)
 		time.Sleep(2 * time.Second)
 	}
+
 	if err != nil {
 		log.Fatalf("[backend] FATAL ping db: %v", err)
 	}
@@ -65,9 +45,6 @@ func main() {
 		c.JSON(http.StatusOK, gin.H{"status": "ok", "service": "backend"})
 	})
 
-	// =========================
-	// ✅ FIX: API ROUTE GROUP
-	// =========================
 	api := r.Group("/api")
 	{
 		api.GET("/projects", listProjects)
@@ -82,7 +59,13 @@ func main() {
 
 	port := env("PORT", "8080")
 	log.Printf("[backend] listening on :%s", port)
-	if err := r.Run(":" + port); err != nil {
-		log.Fatalf("[backend] FATAL: %v", err)
+	r.Run(":" + port)
+}
+
+// ✅ MUST be OUTSIDE main()
+func env(key, fallback string) string {
+	if v := os.Getenv(key); v != "" {
+		return v
 	}
+	return fallback
 }
