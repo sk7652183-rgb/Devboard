@@ -54,8 +54,15 @@ func main() {
 		if err = db.Ping(); err == nil {
 			break
 		}
+		log.Printf("[backend] waiting for postgres (%d)…", i+1)
 		time.Sleep(2 * time.Second)
 	}
+
+	if err != nil {
+		log.Fatalf("[backend] DB ping failed: %v", err)
+	}
+
+	log.Println("[backend] connected to postgres")
 
 	r := gin.Default()
 
@@ -63,7 +70,8 @@ func main() {
 		c.JSON(http.StatusOK, gin.H{"status": "ok"})
 	})
 
-	// API GROUP
+	// ===================== API ROUTES =====================
+
 	api := r.Group("/api")
 	{
 		api.GET("/projects", listProjects)
@@ -76,7 +84,9 @@ func main() {
 		api.GET("/search", searchTasks)
 	}
 
-	r.Run(":8080")
+	port := env("PORT", "8080")
+	log.Printf("[backend] listening on :%s", port)
+	r.Run(":" + port)
 }
 
 // ===================== HANDLERS =====================
@@ -90,6 +100,7 @@ func listProjects(c *gin.Context) {
 	defer rows.Close()
 
 	var projects []Project
+
 	for rows.Next() {
 		var p Project
 		var created time.Time
@@ -98,6 +109,7 @@ func listProjects(c *gin.Context) {
 			fail(c, err)
 			return
 		}
+
 		p.CreatedAt = created.Format(time.RFC3339)
 		projects = append(projects, p)
 	}
@@ -168,7 +180,7 @@ func createTask(c *gin.Context) {
 		Priority    string `json:"priority"`
 	}
 
-	if err := c.ShouldBindJSON(&body); err != nil || body.Title == "" {
+	if err := c.ShouldBindJSON(&body); err != nil || body.Title == "" || body.ProjectID == 0 {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid input"})
 		return
 	}
@@ -200,11 +212,13 @@ func updateTask(c *gin.Context) {
 
 	var patch map[string]interface{}
 	if err := c.ShouldBindJSON(&patch); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "bad request"})
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid body"})
 		return
 	}
 
-	allowed := map[string]bool{"title": true, "description": true, "status": true, "priority": true}
+	allowed := map[string]bool{
+		"title": true, "description": true, "status": true, "priority": true,
+	}
 
 	sets := []string{}
 	args := []interface{}{}
@@ -217,6 +231,11 @@ func updateTask(c *gin.Context) {
 		sets = append(sets, k+"=$"+strconv.Itoa(i))
 		args = append(args, v)
 		i++
+	}
+
+	if len(sets) == 0 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "no valid fields"})
+		return
 	}
 
 	args = append(args, id)
@@ -261,16 +280,76 @@ status,priority,due_date,created_at,updated_at FROM tasks`
 const taskReturning = ` RETURNING id,title,COALESCE(description,''),project_id,assignee_id,
 status,priority,due_date,created_at,updated_at`
 
-func env(k, def string) string {
-	if v := os.Getenv(k); v != "" {
-		return v
+type scannable interface {
+	Scan(dest ...interface{}) error
+}
+
+func scanTask(s scannable) (Task, error) {
+	var t Task
+	var due sql.NullTime
+	var created, updated time.Time
+
+	err := s.Scan(
+		&t.ID,
+		&t.Title,
+		&t.Description,
+		&t.ProjectID,
+		&t.AssigneeID,
+		&t.Status,
+		&t.Priority,
+		&due,
+		&created,
+		&updated,
+	)
+
+	if err != nil {
+		return t, err
 	}
-	return def
+
+	if due.Valid {
+		d := due.Time.Format("2006-01-02")
+		t.DueDate = &d
+	}
+
+	t.CreatedAt = created.Format(time.RFC3339)
+	t.UpdatedAt = updated.Format(time.RFC3339)
+
+	return t, nil
+}
+
+func scanTasks(rows *sql.Rows) ([]Task, error) {
+	var tasks []Task
+
+	for rows.Next() {
+		t, err := scanTask(rows)
+		if err != nil {
+			return nil, err
+		}
+		tasks = append(tasks, t)
+	}
+
+	return tasks, rows.Err()
+}
+
+func join(parts []string, sep string) string {
+	out := ""
+	for i, p := range parts {
+		if i > 0 {
+			out += sep
+		}
+		out += p
+	}
+	return out
 }
 
 func fail(c *gin.Context, err error) {
-	log.Println(err)
+	log.Printf("[backend] ERROR: %v", err)
 	c.JSON(http.StatusInternalServerError, gin.H{"error": "internal error"})
 }
 
-// (scanTask, scanTasks, join functions assumed same as your original)
+func env(key, fallback string) string {
+	if v := os.Getenv(key); v != "" {
+		return v
+	}
+	return fallback
+}
